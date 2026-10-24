@@ -1,59 +1,87 @@
-import type { Cargo } from '../types'
-import { faq } from '../data/faqData'
-import { casos } from '../data/casosData'
-import { glosario } from '../data/glosarioData'
-import { diferencias } from '../data/diferenciasData'
-import { cite, explicit, find, hit, idx, nm, norm, overlap, tok } from '../utils/text'
+import { CARGOS_DATA } from '../data/cargosData';
+import { GLOSARIO_DATA } from '../data/glosarioData';
+import { FAQ_DATA } from '../data/faqData';
 
-export interface Respuesta { body: string; source: string; cargo: Cargo | null }
-type Item = [string, string, string]
-const SRC = 'Base de conocimiento para agente virtual'
-const FIELDS: [RegExp, 'i' | 'k' | 'a' | 'l', string][] = [
-  [/indicador|medir|kpi/, 'i', 'Indicadores que podrían utilizarse'],
-  [/competenc|conocimiento|habilidad/, 'k', 'Conocimientos y competencias (orientativo)'],
-  [/interact|colabor|trabaja con|areas/, 'a', 'Áreas con las que suele interactuar'],
-  [/limite|precauc/, 'l', 'Límites y precauciones'],
-]
+// Estructura simplificada del contexto
+const SYSTEM_PROMPT_CONTEXT = `
+Eres NovaBot, el asistente virtual oficial de ConectaNova Telecom S.A.S.
+Tu objetivo es ser un consultor de talento y arquitectura organizacional cálido, pedagógico, altamente profesional y conversacional.
 
-/** Fila del apartado 3 que compara dos cargos, si existe. */
-export function diffFor(a: Cargo, b: Cargo) {
-  const ks = [a, b].map(c => [...idx(c).ti].filter(w => w.length < 5 || w.startsWith('c')))
-  return diferencias.find(r => { const t = norm(r[0]); return ks.every(k => k.some(w => t.includes(w))) })
+INSTRUCCIONES DE INTERACCIÓN Y ESTILO:
+1. Saluda de forma amable y cercana.
+2. Responde en lenguaje natural, fluido y estructurado en párrafos breves o viñetas claras. Evita sonar como un robot o un manual rígido.
+3. Basa tus respuestas rigurosamente en la base de conocimiento de la empresa que se te proporciona a continuación.
+4. Si la consulta involucra un cargo, menciona sus funciones principales, indicadores (KPIs) clave y sus límites/dependencias si aplica.
+5. Si no encuentras la respuesta exacta en el contexto, sé honesto, responde amablemente indicando qué información sí tienes disponible y ofrece canalizar la duda.
+6. Cierra tus respuestas con una pregunta o invitación conversacional para seguir ayudando al usuario (ej. "¿Te gustaría que profundicemos en las competencias de este rol o que lo comparemos con otro?").
+
+BASE DE CONOCIMIENTO DE CONECTANOVA TELECOM S.A.S.:
+${JSON.stringify(CARGOS_DATA, null, 2)}
+
+GLOSARIO DE TÉRMINOS:
+${JSON.stringify(GLOSARIO_DATA, null, 2)}
+
+PREGUNTAS FRECUENTES:
+${JSON.stringify(FAQ_DATA, null, 2)}
+`;
+
+export async function responderConsulta(mensajeUsuario: string): Promise<string> {
+  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
+
+  // Si hay API Key de Groq configurada, usamos IA de Llama 3.3 70B
+  if (apiKey) {
+    try {
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          messages: [
+            { role: 'system', content: SYSTEM_PROMPT_CONTEXT },
+            { role: 'user', content: mensajeUsuario }
+          ],
+          temperature: 0.6,
+          max_tokens: 1000,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const respuestaIA = data.choices[0]?.message?.content;
+        if (respuestaIA) return respuestaIA;
+      }
+    } catch (error) {
+      console.warn('Falló la llamada a la API de Groq, recurriendo al motor local.', error);
+    }
+  }
+
+  // Motor de respaldo (Fallback local por palabras clave)
+  return generarRespuestaLocal(mensajeUsuario);
 }
-const glosarioHit = (q: string) => glosario.find(g => tok(q).some(w => norm(g[0]).split(/[^a-z0-9]+/).includes(w)))
 
-/** RAG ligero local: recupera fragmentos de la base y cita la fuente. No usa servicios externos. */
-export function reply(q: string, last: Cargo | null): Respuesta {
-  const n = norm(q), ex = explicit(q)
-  if (/salari|sueldo|gana |cuanto gana|requisit|titulo|experiencia|certificac|reporta|jefe/.test(n)) {
-    const w = ex[0], que = /reporta|jefe/.test(n) ? 'líneas de reporte' : 'salarios ni requisitos académicos'
-    return { cargo: last, body: `El documento no especifica ${que}${w ? ' para ' + nm(w) : ''}, así que no lo voy a inventar. Habría que validar cargo, empresa, ubicación y fecha en una fuente adicional.`, source: `${SRC}, apartados 7 y 8 (manejo de datos ausentes).` }
+function generarRespuestaLocal(query: string): string {
+  const q = query.toLowerCase();
+  
+  const cargoEncontrado = CARGOS_DATA.find(c => 
+    c.nombre.toLowerCase().includes(q) || 
+    c.area.toLowerCase().includes(q)
+  );
+
+  if (cargoEncontrado) {
+    return `¡Hola! Con gusto te brindo información sobre el rol de **${cargoEncontrado.nombre}** en el área de **${cargoEncontrado.area}**.\n\n` +
+           `📌 **Propósito principal:** ${cargoEncontrado.proposito}\n\n` +
+           `🎯 **Indicadores clave (KPIs):** ${cargoEncontrado.kpis.join(', ')}.\n\n` +
+           `¿Te gustaría conocer más detalles sobre las responsabilidades o requisitos de este cargo?`;
   }
-  if (/datos personales|datos de (los )?clientes/.test(n) && /mostrar|dame|ver|compart/.test(n))
-    return { cargo: last, body: 'No puedo mostrar datos personales de clientes. Para analizar churn se deben usar datos autorizados, minimizados y protegidos según las políticas aplicables.', source: `${SRC}, apartado 9 (privacidad de datos).` }
-  if (/que es|significa|definicion|que son/.test(n)) {
-    const g = glosarioHit(q)
-    if (g) return { cargo: last, body: `${g[0]}: ${g[1]}`, source: `${SRC}, apartado 5 (glosario).` }
+
+  const faq = FAQ_DATA.find(f => f.pregunta.toLowerCase().includes(q));
+  if (faq) {
+    return `¡Hola! Con respecto a tu duda sobre "${faq.pregunta}":\n\n${faq.respuesta}\n\n¿Hay algo más en lo que te pueda colaborar?`;
   }
-  if (/diferenc|compar|distingu| vs |versus/.test(n) && ex.length >= 2) {
-    const [a, b] = ex, r = diffFor(a, b)
-    if (r) return { cargo: a, body: `${r[0]}: ${r[1]}`, source: `${SRC}, apartado 3. El alcance real depende del organigrama de cada empresa.` }
-    return { cargo: a, body: `${nm(a)}: ${a.d}\n${nm(b)}: ${b.d}\nNo hay una fila específica en el apartado 3 para este par; usa el Comparador.`, source: `${cite(a)}; ${cite(b)}` }
-  }
-  let best: Item | null = null, bs = 0
-  const pool: Item[] = [...faq.map((x): Item => [x[0], x[1], 'apartado 8']), ...casos.map((x): Item => [x[1], x[2], 'apartado 9 (criterio de evaluación)'])]
-  for (const x of pool) { const s = Math.min(overlap(q, x[0]), overlap(x[0], q) + 0.15); if (s > bs) { bs = s; best = x } }
-  const fd = FIELDS.find(f => f[0].test(n))
-  let c: Cargo | null = ex[0] ?? (fd || /y (sus|su)|ese cargo|el mismo/.test(n) ? last : null)
-  if (c && fd) return { cargo: c, body: `${fd[2]} – ${nm(c)}: ${c[fd[1]]}`, source: `Orientación general del sector, no requisito de una empresa. ${cite(c)}` }
-  if (best && bs >= 0.6 && !(ex.length && bs < 0.8))
-    return { cargo: last, body: (best[2].startsWith('apartado 9') ? 'Criterio de respuesta de la base: ' : '') + best[1], source: `${SRC}, ${best[2]}. Verifica normas y organigrama vigentes antes de tratarlo como regla.` }
-  c = c ?? find(q)[0] ?? null
-  if (c) {
-    const t = tok(q), fs = c.fn.filter(f => t.some(w => hit(w, new Set(tok(f))))), sh = (fs.length ? fs : c.fn).slice(0, fs.length ? 4 : 7)
-    return { cargo: c, body: `${c.t}: ${c.d}\nFunciones documentadas:\n${sh.map(f => '• ' + f).join('\n')}`, source: `${cite(c)}. La base no define exclusividad ni línea de reporte.` }
-  }
-  const g = glosarioHit(q)
-  if (g) return { cargo: last, body: `${g[0]}: ${g[1]}`, source: `${SRC}, apartado 5 (glosario).` }
-  return { cargo: last, body: 'No encontré ese tema en la base. ¿Puedes indicar el cargo, la actividad o el servicio al que te refieres? Por ejemplo: espectro, NOC, riesgos o ventas.', source: '' }
+
+  return `¡Hola! Soy NovaBot. Puedo ayudarte con información sobre cualquiera de los 24 cargos, términos técnicos y procesos de ConectaNova Telecom S.A.S.\n\n` +
+         `¿Podrías especificarme sobre qué rol o tema deseas consultar?`;
 }
