@@ -2,7 +2,7 @@ import { CARGOS_DATA } from '../data/cargosData';
 import { GLOSARIO_DATA } from '../data/glosarioData';
 import { FAQ_DATA } from '../data/faqData';
 
-// Estructura simplificada del contexto
+// Contexto completo para el System Prompt de Groq
 const SYSTEM_PROMPT_CONTEXT = `
 Eres NovaBot, el asistente virtual oficial de ConectaNova Telecom S.A.S.
 Tu objetivo es ser un consultor de talento y arquitectura organizacional cálido, pedagógico, altamente profesional y conversacional.
@@ -28,7 +28,6 @@ ${JSON.stringify(FAQ_DATA, null, 2)}
 export async function responderConsulta(mensajeUsuario: string): Promise<string> {
   const apiKey = import.meta.env.VITE_GROQ_API_KEY;
 
-  // Si hay API Key de Groq configurada, usamos IA de Llama 3.3 70B
   if (apiKey) {
     try {
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -50,7 +49,7 @@ export async function responderConsulta(mensajeUsuario: string): Promise<string>
 
       if (response.ok) {
         const data = await response.json();
-        const respuestaIA = data.choices[0]?.message?.content;
+        const respuestaIA = data.choices?.[0]?.message?.content;
         if (respuestaIA) return respuestaIA;
       }
     } catch (error) {
@@ -58,26 +57,29 @@ export async function responderConsulta(mensajeUsuario: string): Promise<string>
     }
   }
 
-  // Motor de respaldo (Fallback local por palabras clave)
   return generarRespuestaLocal(mensajeUsuario);
 }
 
 function generarRespuestaLocal(query: string): string {
   const q = query.toLowerCase();
   
-  const cargoEncontrado = CARGOS_DATA.find(c => 
-    c.nombre.toLowerCase().includes(q) || 
-    c.area.toLowerCase().includes(q)
+  const cargoEncontrado = CARGOS_DATA.find((c: any) => 
+    c.nombre?.toLowerCase().includes(q) || 
+    c.area?.toLowerCase().includes(q)
   );
 
   if (cargoEncontrado) {
+    const kpisTexto = Array.isArray(cargoEncontrado.kpis) 
+      ? cargoEncontrado.kpis.join(', ') 
+      : 'No especificados';
+
     return `¡Hola! Con gusto te brindo información sobre el rol de **${cargoEncontrado.nombre}** en el área de **${cargoEncontrado.area}**.\n\n` +
-           `📌 **Propósito principal:** ${cargoEncontrado.proposito}\n\n` +
-           `🎯 **Indicadores clave (KPIs):** ${cargoEncontrado.kpis.join(', ')}.\n\n` +
+           `📌 **Propósito principal:** ${cargoEncontrado.proposito || 'No especificado'}\n\n` +
+           `🎯 **Indicadores clave (KPIs):** ${kpisTexto}.\n\n` +
            `¿Te gustaría conocer más detalles sobre las responsabilidades o requisitos de este cargo?`;
   }
 
-  const faq = FAQ_DATA.find(f => f.pregunta.toLowerCase().includes(q));
+  const faq = FAQ_DATA.find((f: any) => f.pregunta?.toLowerCase().includes(q));
   if (faq) {
     return `¡Hola! Con respecto a tu duda sobre "${faq.pregunta}":\n\n${faq.respuesta}\n\n¿Hay algo más en lo que te pueda colaborar?`;
   }
