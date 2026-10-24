@@ -1,6 +1,6 @@
-import { CARGOS_DATA } from '../data/cargosData';
-import { GLOSARIO_DATA } from '../data/glosarioData';
-import { FAQ_DATA } from '../data/faqData';
+import CARGOS_DATA from '../data/cargosData';
+import GLOSARIO_DATA from '../data/glosarioData';
+import FAQ_DATA from '../data/faqData';
 
 // Contexto completo para el System Prompt de Groq
 const SYSTEM_PROMPT_CONTEXT = `
@@ -26,7 +26,7 @@ ${JSON.stringify(FAQ_DATA, null, 2)}
 `;
 
 export async function responderConsulta(mensajeUsuario: string): Promise<string> {
-  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
+  const apiKey = (import.meta as any).env?.VITE_GROQ_API_KEY;
 
   if (apiKey) {
     try {
@@ -60,12 +60,16 @@ export async function responderConsulta(mensajeUsuario: string): Promise<string>
   return generarRespuestaLocal(mensajeUsuario);
 }
 
+// Alias de exportación para compatibilidad con Chat.tsx y otros componentes
+export const consultarRAG = responderConsulta;
+export const queryRAG = responderConsulta;
+
 function generarRespuestaLocal(query: string): string {
   const q = query.toLowerCase();
   
-  const cargoEncontrado = CARGOS_DATA.find((c: any) => 
-    c.nombre?.toLowerCase().includes(q) || 
-    c.area?.toLowerCase().includes(q)
+  const cargoEncontrado = (CARGOS_DATA as any[]).find((c: any) => 
+    (c.nombre && c.nombre.toLowerCase().includes(q)) || 
+    (c.area && c.area.toLowerCase().includes(q))
   );
 
   if (cargoEncontrado) {
@@ -79,7 +83,7 @@ function generarRespuestaLocal(query: string): string {
            `¿Te gustaría conocer más detalles sobre las responsabilidades o requisitos de este cargo?`;
   }
 
-  const faq = FAQ_DATA.find((f: any) => f.pregunta?.toLowerCase().includes(q));
+  const faq = (FAQ_DATA as any[]).find((f: any) => f.pregunta && f.pregunta.toLowerCase().includes(q));
   if (faq) {
     return `¡Hola! Con respecto a tu duda sobre "${faq.pregunta}":\n\n${faq.respuesta}\n\n¿Hay algo más en lo que te pueda colaborar?`;
   }
