@@ -2,7 +2,7 @@ import CARGOS_DATA from '../data/cargosData';
 import GLOSARIO_DATA from '../data/glosarioData';
 import FAQ_DATA from '../data/faqData';
 
-// Contexto completo para el System Prompt de Groq
+// Contexto para el System Prompt de Groq
 const SYSTEM_PROMPT_CONTEXT = `
 Eres NovaBot, el asistente virtual oficial de ConectaNova Telecom S.A.S.
 Tu objetivo es ser un consultor de talento y arquitectura organizacional cálido, pedagógico, altamente profesional y conversacional.
@@ -60,9 +60,19 @@ export async function responderConsulta(mensajeUsuario: string): Promise<string>
   return generarRespuestaLocal(mensajeUsuario);
 }
 
-// Alias de exportación para compatibilidad con Chat.tsx y otros componentes
+// Exportaciones exactas requeridas por Chat.tsx, Comparador.tsx y otros componentes
+export const reply = responderConsulta;
 export const consultarRAG = responderConsulta;
 export const queryRAG = responderConsulta;
+
+// Función requerida por el componente Comparador.tsx
+export function diffFor(cargo1Name: string, cargo2Name: string): any {
+  const list: any[] = CARGOS_DATA as any[];
+  const c1 = list.find((c: any) => c.nombre?.toLowerCase() === cargo1Name.toLowerCase() || c.id === cargo1Name);
+  const c2 = list.find((c: any) => c.nombre?.toLowerCase() === cargo2Name.toLowerCase() || c.id === cargo2Name);
+
+  return { cargo1: c1 || null, cargo2: c2 || null };
+}
 
 function generarRespuestaLocal(query: string): string {
   const q = query.toLowerCase();
